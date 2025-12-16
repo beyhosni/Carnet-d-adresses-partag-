@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  SPRING_PROFILES_ACTIVE: "k8s"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: photo-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: addressbook-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: addressbook
+  template:
+    metadata:
+      labels:
+        app: addressbook
+    spec:
+      containers:
+        - name: app
+          image: addressbook-app:latest # Replaced by CI
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://db-host:5432/addressbook" # Update with Cloud SQL Auth Proxy or Private IP
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+          volumeMounts:
+            - mountPath: /app/photos # Configure app to use this path for photos
+              name: photo-storage
+          envFrom:
+            - configMapRef:
+                name: app-config
+      volumes:
+        - name: photo-storage
+          persistentVolumeClaim:
+            claimName: photo-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: addressbook-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: addressbook
+  ports:
+    - port: 80
+      targetPort: 8080
